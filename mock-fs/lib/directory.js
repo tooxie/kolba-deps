@@ -20,6 +20,11 @@ function Directory() {
    */
   this._items = {};
 
+  /**
+   * Permissions.
+   */
+  this._mode = 0777;
+
 }
 util.inherits(Directory, Item);
 
@@ -42,6 +47,7 @@ Directory.prototype.addItem = function(name, item) {
     // for subdirectory
     ++this.links;
   }
+  this.setMTime(new Date());
   return item;
 };
 
@@ -78,6 +84,7 @@ Directory.prototype.removeItem = function(name) {
     // for subdirectory
     --this.links;
   }
+  this.setMTime(new Date());
   return item;
 };
 

@@ -1,4 +1,5 @@
 var fs = require('fs');
+var os = require('os');
 var path = require('path');
 
 var mock = require('../../lib/index');
@@ -14,6 +15,27 @@ describe('The API', function() {
       });
 
       assert.isTrue(fs.existsSync('fake-file-for-testing-only'));
+
+      mock.restore();
+    });
+
+  });
+
+  describe('mock()', function() {
+
+    it('creates process.cwd() and os.tmpdir() by default', function() {
+      mock();
+
+      assert.isTrue(fs.statSync(process.cwd()).isDirectory());
+      var tmp;
+      if (os.tmpdir) {
+        tmp = os.tmpdir();
+      } else if (os.tmpDir) {
+        tmp = os.tmpDir();
+      }
+      if (tmp) {
+        assert.isTrue(fs.statSync(tmp).isDirectory());
+      }
 
       mock.restore();
     });
@@ -90,6 +112,34 @@ describe('The API', function() {
 
     });
 
+    it('works with a trailing slash', function() {
+
+      mock({
+        'path/to/dir/': mock.directory({
+          mtime: new Date(8675309),
+          mode: 0644
+        })
+      });
+
+      assert.isTrue(fs.statSync('path/to/dir').isDirectory());
+      assert.isTrue(fs.statSync('path/to/dir/').isDirectory());
+
+    });
+
+    it('works without a trailing slash', function() {
+
+      mock({
+        'path/to/dir': mock.directory({
+          mtime: new Date(8675309),
+          mode: 0644
+        })
+      });
+
+      assert.isTrue(fs.statSync('path/to/dir').isDirectory());
+      assert.isTrue(fs.statSync('path/to/dir/').isDirectory());
+
+    });
+
   });
 
   describe('mock.symlink()', function() {
@@ -157,9 +207,10 @@ describe('Mocking the file system', function() {
         'path/to/a.bin': new Buffer([1, 2, 3]),
         'empty': {},
         'nested': {
-          'dir': {
-            'file.txt': ''
-          }
+          'dir': mock.directory({
+            mtime: new Date(1),
+            items: {'file.txt': ''}
+          })
         }
       });
     });
@@ -170,6 +221,18 @@ describe('Mocking the file system', function() {
         assert.isTrue(!err);
         assert.isFalse(fs.existsSync('path/to/a.bin'));
         assert.isTrue(fs.existsSync('path/to/b.bin'));
+        done();
+      });
+    });
+
+    it('updates mtime of parent directory', function(done) {
+      var oldTime = fs.statSync('nested/dir').mtime;
+      fs.rename('nested/dir/file.txt', 'nested/dir/renamed.txt', function(err) {
+        assert.isTrue(!err);
+        assert.isFalse(fs.existsSync('nested/dir/file.txt'));
+        assert.isTrue(fs.existsSync('nested/dir/renamed.txt'));
+        var newTime = fs.statSync('nested/dir').mtime;
+        assert.isTrue(newTime > oldTime);
         done();
       });
     });
@@ -359,8 +422,16 @@ describe('Mocking the file system', function() {
         assert.instanceOf(stats.ctime, Date);
         assert.instanceOf(stats.mtime, Date);
         assert.instanceOf(stats.atime, Date);
-        assert.isNumber(stats.uid);
-        assert.isNumber(stats.gid);
+        if (process.getuid) {
+          assert.isNumber(stats.uid);
+        } else {
+          assert.isUndefined(stats.uid);
+        }
+        if (process.getgid) {
+          assert.isNumber(stats.gid);
+        } else {
+          assert.isUndefined(stats.gid);
+        }
         assert.equal(stats.nlink, 3);
         assert.isNumber(stats.blocks);
         assert.isNumber(stats.blksize);
@@ -1356,27 +1427,41 @@ describe('Mocking the file system', function() {
 
     beforeEach(function() {
       mock({
-        '.': {}
+        dir: mock.directory({
+          mtime: new Date(1)
+        })
       });
     });
     afterEach(mock.restore);
 
     it('writes a string to a file', function(done) {
-      fs.writeFile('foo', 'bar', function(err) {
+      fs.writeFile('dir/foo', 'bar', function(err) {
         if (err) {
           return done(err);
         }
-        assert.equal(String(fs.readFileSync('foo')), 'bar');
+        assert.equal(String(fs.readFileSync('dir/foo')), 'bar');
+        done();
+      });
+    });
+
+    it('updates mtime of parent directory', function(done) {
+      var oldTime = fs.statSync('dir').mtime;
+      fs.writeFile('dir/foo', 'bar', function(err) {
+        if (err) {
+          return done(err);
+        }
+        var newTime = fs.statSync('dir').mtime;
+        assert.isTrue(newTime > oldTime);
         done();
       });
     });
 
     it('writes a buffer to a file', function(done) {
-      fs.writeFile('foo', new Buffer('bar'), function(err) {
+      fs.writeFile('dir/foo', new Buffer('bar'), function(err) {
         if (err) {
           return done(err);
         }
-        assert.equal(String(fs.readFileSync('foo')), 'bar');
+        assert.equal(String(fs.readFileSync('dir/foo')), 'bar');
         done();
       });
     });
@@ -1840,6 +1925,10 @@ describe('Mocking the file system', function() {
     beforeEach(function() {
       mock({
         'dir': {},
+        'dir2': mock.directory({
+          mtime: new Date(1),
+          items: {file: 'content here'}
+        }),
         'file.txt': 'content'
       });
     });
@@ -1851,6 +1940,19 @@ describe('Mocking the file system', function() {
           return done(err);
         }
         assert.isFalse(fs.existsSync('file.txt'));
+        done();
+      });
+    });
+
+    it('updates mtime of parent', function(done) {
+      var oldTime = fs.statSync('dir2').mtime;
+      fs.unlink('dir2/file', function(err) {
+        if (err) {
+          return done(err);
+        }
+        assert.isFalse(fs.existsSync('dir2/file'));
+        var newTime = fs.statSync('dir2').mtime;
+        assert.isTrue(newTime > oldTime);
         done();
       });
     });
@@ -2400,5 +2502,107 @@ describe('Mocking the file system', function() {
     });
 
   });
+
+  if (process.getuid && process.getgid) {
+
+    describe('security', function() {
+
+      afterEach(mock.restore);
+
+      it('denies dir listing without execute on parent', function() {
+
+        mock({
+          secure: mock.directory({
+            mode: 0666,
+            items: {
+              insecure: ({
+                file: 'file content'
+              })
+            }
+          })
+        });
+
+        var err;
+        try {
+          fs.readdirSync('secure/insecure');
+        } catch (e) {
+          err = e;
+        }
+        assert.instanceOf(err, Error);
+        assert.equal(err.code, 'EACCES');
+
+      });
+
+      it('denies file read without execute on parent', function() {
+
+        mock({
+          secure: mock.directory({
+            mode: 0666,
+            items: {
+              insecure: ({
+                file: 'file content'
+              })
+            }
+          })
+        });
+
+        var err;
+        try {
+          fs.readFileSync('secure/insecure/file');
+        } catch (e) {
+          err = e;
+        }
+        assert.instanceOf(err, Error);
+        assert.equal(err.code, 'EACCES');
+
+      });
+
+      it('denies file read without read on file', function() {
+
+        mock({
+          insecure: ({
+            'write-only': mock.file({
+              mode: 0222,
+              content: 'write only'
+            })
+          })
+        });
+
+        var err;
+        try {
+          fs.readFileSync('insecure/write-only');
+        } catch (e) {
+          err = e;
+        }
+        assert.instanceOf(err, Error);
+        assert.equal(err.code, 'EACCES');
+
+      });
+
+      it('denies file write without write on file', function() {
+
+        mock({
+          insecure: ({
+            'read-only': mock.file({
+              mode: 0444,
+              content: 'read only'
+            })
+          })
+        });
+
+        var err;
+        try {
+          fs.writeFileSync('insecure/read-only', 'denied');
+        } catch (e) {
+          err = e;
+        }
+        assert.instanceOf(err, Error);
+        assert.equal(err.code, 'EACCES');
+
+      });
+
+    });
+
+  }
 
 });

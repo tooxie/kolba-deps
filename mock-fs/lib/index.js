@@ -9,8 +9,9 @@ var FileSystem = require('./filesystem');
 var minor = process.versions.node.split('.').slice(0, 2).join('.');
 var versions = {
   '0.8': 'fs-0.8.26.js',
-  '0.10': 'fs-0.10.24.js',
-  '0.11': 'fs-0.11.10.js'
+  '0.9': 'fs-0.9.12.js',
+  '0.10': 'fs-0.10.28.js',
+  '0.11': 'fs-0.11.13.js'
 };
 
 var fsName = versions[minor];
