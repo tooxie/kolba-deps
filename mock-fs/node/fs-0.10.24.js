@@ -59,22 +59,36 @@ var DEBUG = process.env.NODE_DEBUG && /fs/.test(process.env.NODE_DEBUG);
 function rethrow() {
   // Only enable in debug mode. A backtrace uses ~1000 bytes of heap space and
   // is fairly slow to generate.
+  var callback;
   if (DEBUG) {
     var backtrace = new Error;
-    return function(err) {
-      if (err) {
-        backtrace.message = err.message;
-        err = backtrace;
-        throw err;
-      }
-    };
+    callback = debugCallback;
+  } else
+    callback = missingCallback;
+
+  return callback;
+
+  function debugCallback(err) {
+    if (err) {
+      backtrace.message = err.message;
+      err = backtrace;
+      missingCallback(err);
+    }
   }
 
-  return function(err) {
+  function missingCallback(err) {
     if (err) {
-      throw err;  // Forgot a callback but don't know where? Use NODE_DEBUG=fs
+      if (process.throwDeprecation)
+        throw err;  // Forgot a callback but don't know where? Use NODE_DEBUG=fs
+      else if (!process.noDeprecation) {
+        var msg = 'fs: missing callback ' + (err.stack || err.message);
+        if (process.traceDeprecation)
+          console.trace(msg);
+        else
+          console.error(msg);
+      }
     }
-  };
+  }
 }
 
 function maybeCallback(cb) {
@@ -542,7 +556,7 @@ fs.truncate = function(path, len, callback) {
     len = 0;
   }
   callback = maybeCallback(callback);
-  fs.open(path, 'w', function(er, fd) {
+  fs.open(path, 'r+', function(er, fd) {
     if (er) return callback(er);
     binding.ftruncate(fd, len, function(er) {
       fs.close(fd, function(er2) {
@@ -561,7 +575,7 @@ fs.truncateSync = function(path, len) {
     len = 0;
   }
   // allow error to be thrown, but still close fd.
-  var fd = fs.openSync(path, 'w');
+  var fd = fs.openSync(path, 'r+');
   try {
     var ret = fs.ftruncateSync(fd, len);
   } finally {
@@ -949,7 +963,7 @@ fs.writeFileSync = function(path, data, options) {
   assertEncoding(options.encoding);
 
   var flag = options.flag || 'w';
-  var fd = fs.openSync(path, flag);
+  var fd = fs.openSync(path, flag, options.mode);
   if (!Buffer.isBuffer(data)) {
     data = new Buffer('' + data, options.encoding || 'utf8');
   }
@@ -1480,7 +1494,7 @@ ReadStream.prototype.open = function() {
   var self = this;
   fs.open(this.path, this.flags, this.mode, function(er, fd) {
     if (er) {
-      if (this.autoClose) {
+      if (self.autoClose) {
         self.destroy();
       }
       self.emit('error', er);

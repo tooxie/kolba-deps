@@ -3,7 +3,6 @@ var path = require('path');
 
 var Directory = require('./directory');
 var File = require('./file');
-var FSError = require('./error');
 var SymbolicLink = require('./symlink');
 
 
@@ -13,14 +12,7 @@ function getPathParts(filepath) {
   var parts = path._makeLong(path.resolve(filepath)).split(path.sep);
   parts.shift();
   if (isWindows) {
-    // parts currently looks like ['', '?', 'c:', ...]
     parts.shift();
-    var q = parts.shift(); // should be '?'
-    var base = '\\\\' + q + '\\' + parts.shift().toLowerCase();
-    parts.unshift(base);
-  }
-  if (parts[parts.length - 1] === '') {
-    parts.pop();
   }
   return parts;
 }
@@ -70,18 +62,9 @@ function FileSystem() {
  */
 FileSystem.prototype.getItem = function(filepath) {
   var parts = getPathParts(filepath);
-  var currentParts = getPathParts(process.cwd());
   var item = this._root;
-  var name;
   for (var i = 0, ii = parts.length; i < ii; ++i) {
-    name = parts[i];
-    if (item instanceof Directory && name !== currentParts[i]) {
-      // make sure traversal is allowed
-      if (!item.canExecute()) {
-        throw new FSError('EACCES', filepath);
-      }
-    }
-    item = item.getItem(name);
+    item = item.getItem(parts[i]);
     if (!item) {
       break;
     }
@@ -243,6 +226,8 @@ FileSystem.directory = function(config) {
     var dir = new Directory();
     if (config.hasOwnProperty('mode')) {
       dir.setMode(config.mode);
+    } else {
+      dir.setMode(0777);
     }
     if (config.hasOwnProperty('uid')) {
       dir.setUid(config.uid);

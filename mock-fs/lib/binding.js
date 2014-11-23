@@ -284,21 +284,11 @@ Binding.prototype.open = function(pathname, flags, mode, callback) {
         throw new FSError('ENOTDIR', pathname);
       }
       item = new File();
-      if (mode) {
-        item.setMode(mode);
-      }
+      item.setMode(mode);
       parent.addItem(path.basename(pathname), item);
     }
-    if (descriptor.isRead()) {
-      if (!item) {
-        throw new FSError('ENOENT', pathname);
-      }
-      if (!item.canRead()) {
-        throw new FSError('EACCES', pathname);
-      }
-    }
-    if (descriptor.isWrite() && !item.canWrite()) {
-      throw new FSError('EACCES', pathname);
+    if (descriptor.isRead() && !item) {
+      throw new FSError('ENOENT', pathname);
     }
     if (descriptor.isTruncate()) {
       item.setContent('');
@@ -516,9 +506,7 @@ Binding.prototype.mkdir = function(pathname, mode, callback) {
       throw new FSError('ENOENT', pathname);
     }
     var dir = new Directory();
-    if (mode) {
-      dir.setMode(mode);
-    }
+    dir.setMode(mode);
     parent.addItem(path.basename(pathname), dir);
   });
 };
